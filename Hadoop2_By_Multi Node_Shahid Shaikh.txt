@@ -1,0 +1,483 @@
+..........................HADOOP 2 FULLY DISTRIBUTED SCRIPT..............................
+
+Step 1 = launch an EC2 instance
+
+Step 2 = scp -i key.pem key.pem ubuntu@publicIP:~/.ssh/
+(open cmd and send key to instance)
+
+step 3 = (Take control)
+sudo -i 
+passwd 
+exit
+
+Step 4 = sudo apt update -y
+
+Step 5 = sudo apt-get install openjdk-8-jdk -y 
+
+Step 6 = wget https://archive.apache.org/dist/hadoop/common/hadoop-2.7.5/hadoop-2.7.5.tar.gz -P ~/Downloads
+sudo tar zxvf ~/Downloads/hadoop-* -C /usr/local
+sudo mv /usr/local/hadoop-* /usr/local/hadoop
+
+Step 7 = whereis java
+(check java path)
+
+Step 8 = readlink -f /usr/bin/java
+
+Step 9 = readlink -f /usr/bin/java | sed "s:bin/java::"
+
+Step 10 = cat >>$HOME/.bashrc <<EOL
+# -- HADOOP ENVIRONMENT VARIABLES START -- #
+export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+export HADOOP_HOME=/usr/local/hadoop
+export PATH=\$PATH:\$HADOOP_HOME/bin
+export PATH=\$PATH:\$HADOOP_HOME/sbin
+export PATH=\$PATH:/usr/local/hadoop/bin/
+export HADOOP_MAPRED_HOME=\$HADOOP_HOME
+export HADOOP_COMMON_HOME=\$HADOOP_HOME
+export HADOOP_HDFS_HOME=\$HADOOP_HOME
+export YARN_HOME=\$HADOOP_HOME
+export HADOOP_CONF_DIR=/usr/local/hadoop/etc/hadoop
+export PDSH_RCMD_TYPE=ssh
+# -- HADOOP ENVIRONMENT VARIABLES END -- #
+EOL
+
+Step 11 = exec bash
+
+Step 12 = sudo chown -R ubuntu:ubuntu /usr/local/hadoop
+(give ownership of hadoop directory to ubuntu)
+
+Step 13 = sudo su -c 'echo export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 >> /usr/local/hadoop/etc/hadoop/hadoop-env.sh'
+
+sudo su -c 'echo export HADOOP_LOG_DIR=/var/log/hadoop/ >> /usr/local/hadoop/etc/hadoop/hadoop-env.sh'
+
+Step 14 = sudo mkdir /var/log/hadoop/
+
+Step 15 = sudo chown ubuntu:ubuntu -R /var/log/hadoop
+(give ownership of hadoop log directory to ubuntu)
+
+
+****************Prerequisites**********************
+
+(prerequisites = Previous requirments)
+
+................................SELINUX..........................
+
+Step 16 = sudo apt-get install selinux-utils
+(In centos selinux is already installed. we have to install selinux in ubuntu. because according to ITIL, we need to disable it for installing the hadoop)
+ 
+Step 17 = setenforce 0
+
+sudo nano /etc/selinux/config
+
+SELINUX=disabled
+SELINUXTYPE=targeted
+SETLOCALDEFS=0
+
+
+Step 18 = getenforce
+(check selinux status)
+
+(simple concept before you go)
+>>> KMS(key management service) >>>> securing the DFS
+>>> JCE(Java Cryptography Extension)>>>> securing JVM
+>>> selinux >>>> securing the kernel/linux
+
+..................................IPv6.................................
+
+(hadoop2 does not support the IPv6... so disabled it)
+
+Step 19 = cat /proc/sys/net/ipv6/conf/all/disable_ipv6
+
+Step 20 = sudo su -c 'cat >>/etc/sysctl.conf <<EOL
+net.ipv6.conf.all.disable_ipv6 =1
+net.ipv6.conf.default.disable_ipv6 =1
+net.ipv6.conf.lo.disable_ipv6 =1
+EOL'
+
+Step 21 = sudo sysctl -p
+(check it is dissable or not)
+
+.........................Disable FireWall iptables.....................
+
+(The Uncomplicated Firewall or ufw is the configuration tool for iptables that comes by default on Ubuntu. If we have to disabled software firewall because we have set hardware firewall)
+ 
+Step 22 = sudo iptables -L -n -v
+
+(-L = list all rules in the selected chain,
+ -n = numeric output,
+ -v = verbose output) 
+
+step 23 = sudo iptables-save > firewall.rules 
+
+step 24 = sudo ufw status verbose
+(check it is inactive or not)
+
+.........................Transparent Hugepage (concept of defragmentation)...........................
+
+
+Step 25 = cat /sys/kernel/mm/transparent_hugepage/defrag
+
+(#RedHat/CentOS: /sys/kernel/mm/redhat_transparent_hugepage/defrag,
+
+#Ubuntu/Debian,OEL,SLES: /sys/kernel/mm/transparent_hugepage/defrag)
+
+Step 26 = sudo su -c 'cat >>/etc/rc.local <<EOL
+#!/bin/bash
+if test -f /sys/kernel/mm/transparent_hugepage/enabled; then
+  echo never > /sys/kernel/mm/transparent_hugepage/enabled
+fi
+if test -f /sys/kernel/mm/transparent_hugepage/defrag; then
+   echo never > /sys/kernel/mm/transparent_hugepage/defrag 
+fi
+exit 0
+EOL'
+
+Step 27 = sudo chmod 755 /etc/rc.local
+
+Step = sudo ls -ld /etc/rc.local
+
+Step 28 = sudo systemctl restart rc-local
+
+Step 29 = cat /sys/kernel/mm/transparent_hugepage/defrag
+
+........................Set Swappiness.............................
+
+{swapiness= 0 >>>no swapiness
+swapiness= 1 >>>swap only for required function (recomanded by Cloudera)
+swapiness= 10 >>> swaping is allowed for only linux function (out of the usr)
+swapiness=60 >>> swapping is allowed to all function}
+
+Step 30 = sudo sysctl -a | grep vm.swappiness
+
+Step 31 = sudo su -c 'cat >>/etc/sysctl.conf <<EOL
+'vm.swappiness=1'
+EOL'
+
+Step 32 = sudo sysctl -p
+
+Step 33 = cat /proc/sys/vm/swappiness
+
+.........................Configure NTP.............................. 
+
+NTP = Network time protocol
+UTC = Universal time clock
+GMT = greanwitch mean time 
+IST = Indian standerd time
+
+
+Step 34 = sudo apt install chrony
+
+sudo vi /etc/chrony/chrony.conf
+
+server 169.254.169.123 prefer iburst minpoll 4 maxpoll 4
+
+sudo /etc/init.d/chrony restart
+
+chronyc sources -v
+
+Step 35 = timedatectl status
+
+Step 36 = timedatectl list-timezones | grep Asia/Kolkata
+(search Asia/Kolkata in the list of timezones)
+
+Step 37 = sudo timedatectl set-timezone Asia/Kolkata
+(set Asia/Kolkata timezone)
+
+Step 38 = timedatectl status  
+(set timezone status)
+
+..........................Root Reserved Space.........................
+
+(cloudera recommends set root reserved space is 5% to 1% for the datanode volumes)
+
+Step 40 = sudo mkfs.ext4  /dev/xvda1
+(make filesystem ext4)
+ 
+Step 41 = sudo tune2fs -m 0 /dev/xvda1
+(tunable file system to ext2, -m means reserved  block percentage 0)
+
+Step 42 = sudo file -sL /dev/xvda1
+
+Step 43 = lsblk (used to check partition)
+
+Step 44 = sudo su -c touch /home/ubuntu/.ssh/config; echo -e \ "Host *\n StrictHostKeyChecking no\n  UserKnownHostsFile=/dev/null" \ > ~/.ssh/config
+
+Step 45 = ssh-keygen -t rsa -f ~/.ssh/id_rsa -P "" ; cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
+
+Step 46 = sudo service ssh restart
+
+Step 47 = sudo apt-get update && sudo apt-get dist-upgrade -y 
+
+Step 48 = sudo sed -i '/<configuration>/,/<\/configuration>/d' /usr/local/hadoop/etc/hadoop/core-site.xml
+
+Step 49 = scp -i 13Apr.pem key.pem ubuntu@ip:.ssh
+
+chmod 400 13Apr.pem
+
+Step 49b = echo 'eval `ssh-agent` ssh-add /home/ubuntu/.ssh/13Apr.pem'>>~/.profile
+
+Step 49c = source .profile
+
+Step 50 = sudo su -c 'cat >> /usr/local/hadoop/etc/hadoop/core-site.xml <<EOL
+<configuration>
+  <property>
+    <name>fs.defaultFS</name>
+    <value>hdfs://nn:9000</value>
+  </property>
+</configuration>
+EOL'
+
+Step 50 = mkdir -p /usr/local/hadoop/data/hdfs/namenode
+
+Step 51 = mkdir -p /usr/local/hadoop/data/hdfs/datanode
+
+Step 52 = sudo sed -i '/<configuration>/,/<\/configuration>/d' /usr/local/hadoop/etc/hadoop/hdfs-site.xml
+
+Step 53 = sudo su -c 'cat >>/usr/local/hadoop/etc/hadoop/hdfs-site.xml <<EOL
+<configuration>
+  <property>
+    <name>dfs.replication</name>
+    <value>3</value>
+  </property>
+  <property>
+    <name>dfs.namenode.name.dir</name>
+    <value>file:///usr/local/hadoop/data/hdfs/namenode</value>
+  </property>
+<property> 
+   <name>dfs.secondary.http.address</name>
+   <value>snn:50090</value>
+   <description>snn</description>
+</property>
+ <property>
+    <name>dfs.datanode.name.dir</name>
+    <value>file:///usr/local/hadoop/data/hdfs/datanode</value>
+  </property>
+</configuration>
+EOL'
+
+Step 54 = sudo sed -i '/<configuration>/,/<\/configuration>/d' /usr/local/hadoop/etc/hadoop/yarn-site.xml
+
+Step 55 = sudo su -c 'cat >>/usr/local/hadoop/etc/hadoop/yarn-site.xml <<EOL
+<configuration>
+<!-- Site specific YARN configuration properties -->
+ <property>
+     <name>yarn.nodemanager.aux-services</name>
+     <value>mapreduce_shuffle</value>
+   </property> 
+   <property>
+     <name>yarn.nodemanager.aux-services.mapreduce.shuffle.class</name>
+     <value>org.apache.hadoop.mapred.ShuffleHandler</value>
+   </property>
+   <property>
+     <name>yarn.resourcemanager.hostname</name>
+     <value>rm</value>
+   </property>
+</configuration>
+EOL'
+
+Step 56 = cp /usr/local/hadoop/etc/hadoop/mapred-site.xml.template /usr/local/hadoop/etc/hadoop/mapred-site.xml
+
+Step 57 = sudo sed -i '/<configuration>/,/<\/configuration>/d' /usr/local/hadoop/etc/hadoop/mapred-site.xml
+
+Step 58 = sudo su -c 'cat >>/usr/local/hadoop/etc/hadoop/mapred-site.xml <<EOL
+<configuration>
+  <property>
+    <name>mapreduce.jobtracker.address</name>
+    <value>rm:54311</value>
+  </property>
+  <property>
+    <name>mapreduce.framework.name</name>
+    <value>yarn</value>
+  </property>
+</configuration>
+EOL'
+
+Step 59 = echo snn >>$HADOOP_CONF_DIR/masters 
+snn
+
+Step 60 = cat >>$HADOOP_CONF_DIR/slaves <<EOL
+dn1
+dn2
+dn3
+EOL
+
+######(Create AMI and launch an instances as per requirements)#########
+
+(Do this following steps on namenode)
+
+Step 61 = sudo su -c 'cat >>/etc/hosts<<EOL
+10.0.14.23 nn
+10.0.8.0 snn
+10.0.0.164 rm
+10.0.10.68 dn1
+10.0.6.166 dn2
+10.0.2.168 dn3
+EOL'
+
+
+Step 62 = sudo apt-get install pdsh -y
+(Install parallel dsh means if you run command on nn then it will parallely run on all instances)
+
+Step 63 = sudo nano /etc/genders
+
+nn
+snn
+rm
+dn1
+dn2
+dn3
+
+Step 64 = pdsh -a uptime
+
+Step 65 = pdsh -x nn -a exec sudo chown ubuntu:ubuntu /etc/hosts
+(give permission of all /etc/hosts to ubuntu except nn)
+
+Step 66 = pdsh -x nn -a exec 'cat>>/etc/hosts<<EOL
+10.0.14.23 nn
+10.0.8.0 snn
+10.0.0.164 rm
+10.0.10.68 dn1
+10.0.6.166 dn2
+10.0.2.168 dn3
+EOL'
+
+Step 67 = pdsh -x nn -a exec sudo chown root:root /etc/hosts
+(give permission of all /etc/hosts to root except nn)
+
+Step 68 = hdfs namenode -format
+
+Step 69 = start-dfs.sh
+
+Step 70 = ssh rm
+
+Step 71 = start-yarn.sh
+
+Step 72 = $HADOOP_HOME/sbin/mr-jobhistory-daemon.sh start historyserver
+(start jobhistory server)
+
+Step 73 = ssh nn
+
+Step 74 = pdsh -a jps
+
+Step 75 = hdfs dfs -mkdir /user
+
+Step 76 = hdfs dfs -mkdir /user/ubuntu
+
+Step 77 = hadoop jar /usr/local/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-*.jar teragen 500 random-data
+
+Step 78 = hadoop jar /usr/local/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-*.jar terasort random-data sorted-data
+
+(Cli work is done now you can open all the nodes on gui)
+
+A) NameNode 
+
+nn publicip:50070
+
+B) ResourceManager (Jobtracker)
+
+rm publicip:8088
+
+C)MapReduce JobHistory Server 
+
+publicip:19888 (If you start JobHistory Server on rm then rm ip )
+
+D)SecondaryNameNode 
+
+snn publicip:50090
+
+E)DataNode
+
+dn publicip:50075
+
+F)Hue port no. 8888 or 8889
+
+G)ldap port no. 389
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
